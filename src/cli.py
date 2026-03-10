@@ -1,5 +1,5 @@
 import typer
-from orchestrator import run_analysis
+from src.orchestrator import run_analysis
 
 app = typer.Typer()
 

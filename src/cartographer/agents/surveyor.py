@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from cartographer.graph.module_graph import ModuleGraph
-from cartographer.analyzers.tree_sitter_analyzer import TreeSitterAnalyzer
+from src.cartographer.graph.module_graph import ModuleGraph
+from src.cartographer.analyzers.tree_sitter_analyzer import TreeSitterAnalyzer
 
 
 class Surveyor:

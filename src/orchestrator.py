@@ -1,7 +1,7 @@
 from pathlib import Path
 import json
 
-from cartographer.agents.surveyor import Surveyor
+from src.cartographer.agents.surveyor import Surveyor
 
 
 def run_analysis(repo_path: str):
