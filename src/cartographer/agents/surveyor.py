@@ -1,26 +1,27 @@
-from pathlib import Path
+# Surveyor agent for static structure analysis of codebases.
+# This agent uses the KnowledgeGraph to analyze module imports and compute architectural insights like PageRank and strongly connected components.
+# src/cartographer/agents/surveyor.py
 
-from src.cartographer.graph.module_graph import ModuleGraph
-from src.cartographer.analyzers.tree_sitter_analyzer import TreeSitterAnalyzer
-
+from src.cartographer.graph.knowledge_graph import KnowledgeGraph
+import networkx as nx
 
 class Surveyor:
+    """Static structure analyzer using module imports and AST."""
 
-    def __init__(self):
-        self.analyzer = TreeSitterAnalyzer()
+    def __init__(self, kg: KnowledgeGraph):
+        self.kg = kg
 
-    def analyze_repo(self, repo_path: Path):
+    def analyze_module(self, module_name: str, imports: list[str]):
+        """Add module and its imports to the graph."""
+        self.kg.add_module(module_name)
+        for imp in imports:
+            self.kg.add_import(module_name, imp)
 
-        graph = ModuleGraph()
+    def compute_pagerank(self):
+        """Compute PageRank hubs for architectural insight."""
+        pr = nx.pagerank(self.kg.module_graph)
+        return pr
 
-        for path in repo_path.rglob("*.py"):
-
-            module = str(path)
-            graph.add_module(module)
-
-            imports = self.analyzer.extract_imports(path)
-
-            for imp in imports:
-                graph.add_import(module, imp)
-
-        return graph
+    def strongly_connected_components(self):
+        """Return circular dependencies as sets of module names."""
+        return list(nx.strongly_connected_components(self.kg.module_graph))
