@@ -1,17 +1,19 @@
+import os
 from tree_sitter import Language, Parser
 from pathlib import Path
-import os
-from typing import Optional
-from src.cartographer.models.node import ModuleNode
+from typing import List, Optional
+from src.cartographer.models.node import ModuleNode, FunctionNode
 
-# Path to compiled shared library
+# Load grammars
 PARSERS_PATH = Path(__file__).parent / "parsers.so"
 
 LANGUAGES = {
-    "python": Language(str(PARSERS_PATH), "python"),  # type: ignore
-    "sql": Language(str(PARSERS_PATH), "sql"),        # type: ignore
-    "yaml": Language(str(PARSERS_PATH), "yaml"),      # type: ignore
-    "javascript": Language(str(PARSERS_PATH), "javascript"),  # type: ignore
+    "python": Language(str(PARSERS_PATH), "python"),   # type: ignore
+    "sql": Language(str(PARSERS_PATH), "sql"),         # type: ignore
+    "yaml": Language(str(PARSERS_PATH), "yaml"),       # type: ignore
+    "yml": Language(str(PARSERS_PATH), "yml"),         # type: ignore
+    "javascript": Language(str(PARSERS_PATH), "javascript"), # type: ignore
+    "typescript": Language(str(PARSERS_PATH), "typescript"), # type: ignore
 }
 
 class LanguageRouter:
@@ -21,7 +23,7 @@ class LanguageRouter:
         ".yml": "yaml",
         ".yaml": "yaml",
         ".js": "javascript",
-        ".ts": "javascript",
+        ".ts": "typescript",
     }
 
     @classmethod
@@ -33,7 +35,7 @@ class TreeSitterAnalyzer:
     def __init__(self):
         self.parsers = {lang: Parser() for lang in LANGUAGES}
         for lang, parser in self.parsers.items():
-            parser.set_language(LANGUAGES[lang])  # type: ignore
+            parser.set_language(LANGUAGES[lang])    # type: ignore
 
     def analyze_module(self, file_path: str) -> ModuleNode:
         language = LanguageRouter.get_language(file_path)
@@ -44,8 +46,8 @@ class TreeSitterAnalyzer:
         with open(file_path, "r", encoding="utf-8") as f:
             code = f.read().encode("utf-8")
         tree = parser.parse(code)
-
-        # TODO: traverse AST and extract imports/functions/classes
+        # TODO: full AST traversal to extract imports, functions, classes
+        # Placeholder: just create ModuleNode skeleton
         return ModuleNode(
             path=file_path,
             language=language,
