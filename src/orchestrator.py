@@ -1,61 +1,52 @@
 # src/orchestrator.py
 from pathlib import Path
-import json
-import os
-
 from src.cartographer.graph.knowledge_graph import KnowledgeGraph
-from src.cartographer.agents.surveyor import Surveyor, extract_git_velocity
+from src.cartographer.analyzers.tree_sitter_analyzer import TreeSitterAnalyzer
+from src.cartographer.agents.surveyor import Surveyor
 from src.cartographer.agents.hydrologist import Hydrologist
-from tree_sitter import Language, Parser
+from tree_sitter import Parser, Language
+import tree_sitter_python as tspython
 
-# # CLI app
-# app = typer.Typer()
+# ---------- Setup KnowledgeGraph ----------
+kg = KnowledgeGraph()
 
-# Ensure cartography output dir exists
-CARTOGRAPHY_DIR = Path(".cartography")
-CARTOGRAPHY_DIR.mkdir(exist_ok=True)
+# ---------- Initialize Agents ----------
+ts_analyzer = TreeSitterAnalyzer()
+surveyor = Surveyor(kg, ts_analyzer)
+hydrologist = Hydrologist(kg, ts_analyzer)
 
+# ---------- Setup Python parser for Hydrologist ----------
+PY_LANGUAGE = Language(tspython.language())
+python_parser = Parser()
+python_parser = Parser(PY_LANGUAGE)
 
-def run_analysis(repo_path: str):
+def run_repo_analysis(repo_path: str):
     repo_path_obj = Path(repo_path)
-    kg = KnowledgeGraph()
 
-    # ----- Initialize Surveyor -----
-    surveyor = Surveyor(kg)
+    # 1️⃣ Run Surveyor → module graph
+    print("Running Surveyor (module structure analysis)...")
+    surveyor.analyze_repo(str(repo_path_obj))
+    print(f"Module graph nodes: {len(kg.module_graph.nodes)}")
+    print(f"Module graph edges: {len(kg.module_graph.edges)}")
 
-    # Analyze repo structure
-    for py_file in repo_path_obj.rglob("*.py"):
-        surveyor.analyze_module(str(py_file))
-
-    # Optional: extract git velocity
-    velocity = extract_git_velocity(str(repo_path_obj))
-    print("High-velocity files:", velocity)
-
-    # Serialize module graph
-    module_graph_path = CARTOGRAPHY_DIR / "module_graph.json"
-    kg.serialize_module_graph(str(module_graph_path))
-    print(f"Module graph saved to {module_graph_path}")
-
-    # ----- Initialize Hydrologist -----
-    PARSERS_PATH = Path(__file__).parent / "cartographer" / "parsers.so"
-    PY_LANGUAGE = Language(str(PARSERS_PATH), "python")    # type: ignore
-    python_parser = Parser()
-    python_parser.set_language(PY_LANGUAGE)                # type: ignore
-
-    hydrologist = Hydrologist(kg, python_parser)
+    # 2️⃣ Run Hydrologist → lineage graph
+    print("Running Hydrologist (data lineage analysis)...")
     hydrologist.analyze_repo(str(repo_path_obj))
+    print(f"Lineage graph nodes: {len(kg.lineage_graph.nodes)}")
+    print(f"Lineage graph edges: {len(kg.lineage_graph.edges)}")
 
-    # Serialize lineage graph
+    # 3️⃣ Serialize graphs
+    CARTOGRAPHY_DIR = Path.cwd() / ".cartography"
+    CARTOGRAPHY_DIR.mkdir(exist_ok=True)
+
+    module_graph_path = CARTOGRAPHY_DIR / "module_graph.json"
     lineage_graph_path = CARTOGRAPHY_DIR / "lineage_graph.json"
+
+    kg.serialize_module_graph(str(module_graph_path))
     kg.serialize_lineage_graph(str(lineage_graph_path))
+
+    print(f"Module graph saved to {module_graph_path}")
     print(f"Lineage graph saved to {lineage_graph_path}")
 
-
-# @app.command()
-# def analyze(repo_path: str):
-#     """Run full Cartographer analysis on a repo (structure + lineage)."""
-#     run_analysis(repo_path)
-
-
-# if __name__ == "__main__":
-#     app()
+# Example usage:
+# run_repo_analysis("data/sample_repos/jaffle_shop")
