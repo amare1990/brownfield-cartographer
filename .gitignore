@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.env
+*.venv
+
+# Pytest cache
+.pytest_cache/
+tests/__pycache__/
+
+# Pydantic / UV lock files
+uv.lock
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Artifacts & outputs
+.cartography/
+data/outputs/
+data/sample_repos/jaffle_shop/
+artifacts/
+
+# IDE/editor
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+*.log
