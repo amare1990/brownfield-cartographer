@@ -2,9 +2,8 @@
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-import pickle
 
-from typing import Any, List
+from typing import Any, List, Optional
 
 from src.cartographer.graph.knowledge_graph import KnowledgeGraph
 from src.cartographer.agents.semanticist import Semanticist
@@ -73,19 +72,19 @@ class Navigator:
     # ----------------------------------------------------
     # Tool 2: Trace Lineage
     # ----------------------------------------------------
-    def trace_lineage(self, dataset: str, direction: str = "upstream") -> List[str]:
-        """
-        Trace data lineage for a dataset.
-        direction: 'upstream' or 'downstream'
-        Returns list of module paths producing/consuming the dataset.
-        """
-        lineage = []
+    def trace_lineage(self, dataset: str, direction: str = "upstream") -> List[dict]:
+        results = []
         if dataset in self.kg.lineage_graph.nodes:
-            if direction == "upstream":
-                lineage = list(self.kg.lineage_graph.predecessors(dataset))
-            else:
-                lineage = list(self.kg.lineage_graph.successors(dataset))
-        return lineage
+            nodes = self.kg.lineage_graph.predecessors(dataset) if direction == "upstream" else self.kg.lineage_graph.successors(dataset)
+            for n in nodes:
+                edge_data = self.kg.lineage_graph.get_edge_data(n, dataset)
+                results.append({
+                    "module": n,
+                    "source": "static_analysis",
+                    "lines": (edge_data.get("line_start"), edge_data.get("line_end")) if edge_data else (None, None)
+                })
+        return results
+
 
     # ----------------------------------------------------
     # Tool 3: Blast Radius
@@ -127,3 +126,25 @@ class Navigator:
         if tool_name not in tools:
             raise ValueError(f"Unknown tool: {tool_name}")
         return tools[tool_name](*args, **kwargs)
+
+    # ----------------------------------------------------
+    # Tool Chaining Interface
+    # ----------------------------------------------------
+
+    def query_chain(self, steps: list[dict]) -> Optional[Any]:
+        """
+        Execute a chain of tool calls.
+        steps: [{"tool": "trace_lineage", "args": [...], "kwargs": {...}}, ...]
+        Returns the final result of the last tool.
+        """
+        result: Any = None
+        for step in steps:
+            tool = step["tool"]
+            args = step.get("args", [])
+            kwargs = step.get("kwargs", {})
+            if result is not None and step.get("pass_prev", False):
+                args = [result] + args
+            result = self.query(tool, *args, **kwargs)
+        return result
+
+

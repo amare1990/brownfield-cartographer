@@ -3,8 +3,7 @@
 # Brownfield Cartographer
 
 ```markdown
-
-**Cartographer** is a multi-agent repository intelligence system designed to analyze codebases, extract structural module information, and map data lineage. It combines static code analysis (Surveyor), dataflow analysis (Hydrologist), and configuration parsing (DAG/DBT) into a centralized **Knowledge Graph**.
+Cartographer is a multi-agent repository intelligence system designed to analyze codebases, extract structural module information, and map data lineage. It combines static code analysis (Surveyor), dataflow analysis (Hydrologist), and configuration parsing (DAG/DBT) into a centralized Knowledge Graph.
 ```
 ---
 
@@ -100,16 +99,42 @@ source venv/bin/activate
 uv sync
 ````
 
+## Environment Setup
+
+```bash
+# Copy the environmental variables to your environment variable, .env
+cp .env.examples .env
+
+# And then put necessary environmental variables in the .env
+```
+
+
 ---
 
 ## 🚀 Usage
 
 ### Analyze a Repository
 
+Run the full cartography pipeline: Surveyor, Hydrologist, Semanticist, Archivist.
+
 ```bash
-# Run the CLI to analyze a repo (example: jaffle_shop)
-uv run python -m src.cli data/jaffle_shop
+# Example: analyze a local repo
+uv run python -m src.cli analyze path/to/repo
+
+# Example: analyze a GitHub repo
+uv run python -m src.cli analyze https://github.com/dbt-labs/jaffle-shop.git
+
 ```
+### Interactive Navigator CLI
+
+Query the knowledge graph interactively to find implementations, trace lineage, check blast radius, or explain modules.
+
+```bash
+# Launch interactive Navigator
+uv run python -m src.cli nav
+
+```
+
 
 **Outputs:**
 
