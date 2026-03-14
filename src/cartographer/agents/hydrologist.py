@@ -16,9 +16,10 @@ EXCLUDED_DIRS = {"venv", "env", "node_modules", "build", "dist", "__pycache__"}
 class Hydrologist:
     """Data Lineage Agent: Maps how data flows between datasets."""
 
-    def __init__(self, kg: KnowledgeGraph, ts_analyzer: TreeSitterAnalyzer):
+    def __init__(self, kg: KnowledgeGraph, ts_analyzer: TreeSitterAnalyzer, sql_dialect: str = "postgres"):
         self.kg = kg
         self.ts_analyzer = ts_analyzer
+        self.sql_dialect = sql_dialect
 
     def analyze_repo(self, repo_path: str):
         """
@@ -49,7 +50,7 @@ class Hydrologist:
 
         try:
             sql_text = file_path.read_text(encoding="utf-8")
-            tree = parse_one(sql_text)
+            tree = parse_one(sql_text, read=self.sql_dialect)
         except Exception:
             # fallback: treat all imported modules as sources
             module_data = self.kg.module_graph.nodes.get(str(file_path), {})
@@ -60,7 +61,7 @@ class Hydrologist:
                     source=source,
                     target=target_dataset,
                     edge_type=EdgeType.PRODUCES,
-                    metadata={"source_sql": str(file_path)},
+                    metadata=self._edge_metadata(file_path, None, "sql_select"),
                 )
             return
 
@@ -68,17 +69,15 @@ class Hydrologist:
         source_tables = [t.name for t in tree.find_all(exp.Table)]
 
         # Determine edge type based on statement type
-        for node in tree.find_all(exp.Expression):
-            if isinstance(node, exp.Create):
-                edge_type = EdgeType.PRODUCES
-            elif isinstance(node, exp.Select):
-                edge_type = EdgeType.CONSUMES
-            elif isinstance(node, exp.Func):
-                edge_type = EdgeType.CALLS
-            elif isinstance(node, (exp.Set, exp.Alter)):
-                edge_type = EdgeType.CONFIGURES
-            else:
-                edge_type = EdgeType.PRODUCES
+        if tree.find(exp.Create):
+            edge_type = EdgeType.PRODUCES
+        elif tree.find(exp.Insert):
+            edge_type = EdgeType.PRODUCES
+        elif tree.find(exp.Select):
+            edge_type = EdgeType.CONSUMES
+        else:
+            edge_type = EdgeType.PRODUCES
+
 
         # Add edges for sources
         for src in source_tables:
@@ -87,22 +86,37 @@ class Hydrologist:
                 source=src,
                 target=target_dataset,
                 edge_type=edge_type,
-                metadata={"source_sql": str(file_path)},
+                metadata=self._edge_metadata(file_path, None, "sql_select")
+
             )
 
     def _analyze_python_dataflow(self, file_path: Path):
+
+        text = file_path.read_text()
+
+        if "DAG(" in text:
+            self._analyze_airflow_dag(file_path, text)
+
+
         tree = self.ts_analyzer.get_tree(str(file_path))
         if not tree:
             return
 
-        TARGET_CALLS = {"read_csv", "read_sql", "to_csv", "to_sql", "execute"}
+        # TARGET_CALLS = {"read_csv", "read_sql", "to_csv", "to_sql", "execute"}
+        TARGET_CALLS = {"read_csv", "read_sql", "to_csv", "to_sql"}
+
 
         def walk(node):
             if node.type == "call":
                 func_name_node = node.child_by_field_name("function")
                 if func_name_node:
                     func_name = func_name_node.text.decode("utf-8") if hasattr(func_name_node.text, 'decode') else str(func_name_node.text)
-                    args = [c.text for c in node.children if hasattr(c, 'text')]
+                    args = [
+                        c.text.decode("utf-8")
+                        for c in node.children
+                        if hasattr(c, "text")
+                    ]
+
                     if func_name in {"read_csv", "read_sql"} and args:
                         dataset = args[0].strip('"\'')
                         self.kg.add_dataset(dataset, storage_type="file" if dataset.endswith(".csv") else "table")
@@ -178,6 +192,46 @@ class Hydrologist:
                             "yaml_key": key
                         }
                     )
+
+    # Helper to extract metadata for edges
+    def _edge_metadata(self, file_path, node=None, transform=None):
+        if isinstance(node, exp.Join):
+            transform = "join"
+        elif isinstance(node, exp.Group):
+            transform = "aggregation"
+        elif isinstance(node, exp.Where):
+            transform = "filter"
+        elif isinstance(node, exp.Func) and getattr(node, "is_aggregate", False):
+            transform = "aggregation"
+
+        return {
+            "file": str(file_path),
+            "line_start": getattr(node, "line", None),
+            "line_end": getattr(node, "end_line", None),
+            "transformation": transform
+        }
+
+
+    def _analyze_airflow_dag(self, file_path: Path, text: str):
+
+        pattern = r"(\w+)\s*>>\s*(\w+)"
+        matches = re.findall(pattern, text)
+
+        for upstream, downstream in matches:
+            self.kg.add_lineage_edge(
+                source=upstream,
+                target=downstream,
+                edge_type=EdgeType.PRODUCES,
+                metadata={"file": str(file_path), "type": "airflow_dependency"}
+            )
+
+    def add_merged_edge(self, source, target, edge_type, metadata):
+        existing = self.kg.lineage_graph.get_edge_data(source, target)
+
+        if existing:
+            existing["metadata"].update(metadata)
+        else:
+            self.kg.add_lineage_edge(source, target, edge_type=edge_type, metadata=metadata)
 
 
     # ----- Lineage Queries -----

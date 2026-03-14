@@ -1,4 +1,6 @@
 # src/orchestrator.py
+import tempfile
+import subprocess
 from subprocess import check_output
 from pathlib import Path
 from src.cartographer.graph.knowledge_graph import KnowledgeGraph
@@ -38,7 +40,18 @@ PY_LANGUAGE = Language(tspython.language())
 # python_parser = Parser()
 python_parser = Parser(PY_LANGUAGE)
 
+
+
+def clone_repo_if_needed(repo_path: str) -> str:
+    if repo_path.startswith("http"):
+        tmp = tempfile.mkdtemp()
+        subprocess.run(["git", "clone", repo_path, tmp])
+        return tmp
+    return repo_path
+
+
 def run_repo_analysis(repo_path: str):
+    repo_path = clone_repo_if_needed(repo_path)
     repo_path_obj = Path(repo_path)
 
     # 0️⃣ Detect changed files

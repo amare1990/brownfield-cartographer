@@ -3,8 +3,7 @@
 # Brownfield Cartographer
 
 ```markdown
-
-**Cartographer** is a multi-agent repository intelligence system designed to analyze codebases, extract structural module information, and map data lineage. It combines static code analysis (Surveyor), dataflow analysis (Hydrologist), and configuration parsing (DAG/DBT) into a centralized **Knowledge Graph**.
+Cartographer is a multi-agent repository intelligence system designed to analyze codebases, extract structural module information, and map data lineage. It combines static code analysis (Surveyor), dataflow analysis (Hydrologist), and configuration parsing (DAG/DBT) into a centralized Knowledge Graph.
 ```
 ---
 
@@ -99,6 +98,16 @@ source venv/bin/activate
 # Install dependencies
 uv sync
 ````
+
+## Environment Setup
+
+```bash
+# Copy the environmental variables to your environment variable, .env
+cp .env.examples .env
+
+# And then put necessary environmental variables in the .env
+```
+
 
 ---
 

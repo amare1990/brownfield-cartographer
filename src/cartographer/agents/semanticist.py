@@ -192,8 +192,11 @@ class Semanticist:
       if not texts:
           return
 
-      if len(texts) < k:
-          k = max(2, len(texts) // 2)
+      if len(texts) < 2:
+        print("Skipping domain clustering — not enough modules.")
+        return {}
+
+      k = min(k, len(texts))
 
       embeddings = [self._embed_text(t) for t in texts]
 
@@ -203,14 +206,19 @@ class Semanticist:
 
       modules = list(self.purpose_statements.keys())
 
+      clusters = {}
+
       for module, label in zip(modules, kmeans.labels_):
 
           domain_name = f"domain_{label}"
 
           self.domain_map[module] = domain_name
+          clusters.setdefault(domain_name, []).append(module)
 
           if module in self.kg.module_graph.nodes:
-              self.kg.module_graph.nodes[module]["domain"] = domain_name
+            self.kg.module_graph.nodes[module]["domain"] = domain_name
+
+      return clusters
 
     # ----------------------------------------------------
     # Embedding helper
