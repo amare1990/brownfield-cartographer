@@ -102,6 +102,13 @@ def run_repo_analysis(repo_path: str):
         hydrologist.analyze_repo(str(repo_path_obj))
         print(f"Lineage graph nodes: {len(kg.lineage_graph.nodes)}")
         print(f"Lineage graph edges: {len(kg.lineage_graph.edges)}")
+
+        print("\n" + "*" * 40 + " Hydrologist Lineage Edges " + "*" * 60 + "\n")
+        for source, target, metadata in kg.lineage_graph.edges(data=True):
+            edge_type = metadata.get("edge_type", "unknown")
+            print(f"{source} -> {target} | type={edge_type} | metadata={metadata}")
+
+
     finally:
         kg.serialize_lineage_graph(str(CARTOGRAPHY_DIR / "lineage_graph.json"))
 

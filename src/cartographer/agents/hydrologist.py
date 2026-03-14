@@ -1,7 +1,6 @@
 # src/cartographer/agents/hydrologist.py
 from pathlib import Path
-from typing import List
-
+from typing import List, Union
 import re
 import yaml
 
@@ -14,28 +13,25 @@ from src.cartographer.analyzers.tree_sitter_analyzer import TreeSitterAnalyzer
 EXCLUDED_DIRS = {"venv", "env", "node_modules", "build", "dist", "__pycache__"}
 
 class Hydrologist:
-    """Data Lineage Agent: Maps how data flows between datasets."""
+    """Data Lineage Agent: Maps how data flows between datasets across multiple dialects."""
 
     def __init__(self, kg: KnowledgeGraph, ts_analyzer: TreeSitterAnalyzer, sql_dialect: str = "postgres"):
         self.kg = kg
         self.ts_analyzer = ts_analyzer
         self.sql_dialect = sql_dialect
+        self.lineage_edges = []  # temporary storage before merging
 
+    # ----------------------------
+    # Main Repo Analysis
+    # ----------------------------
     def analyze_repo(self, repo_path: str):
-        """
-        Populate the lineage graph by bridging module dependencies
-        to data transformations.
-        """
+        """Populate the lineage graph from SQL, Python, YAML, and DAGs."""
         repo_path_obj = Path(repo_path)
-
-        # Iterate through files to identify 'Datasets' and 'Transformations'
         for file_path in repo_path_obj.rglob("*"):
             if any(part in EXCLUDED_DIRS for part in file_path.parts) or not file_path.is_file():
                 continue
 
             ext = file_path.suffix.lower()
-            str_path = str(file_path)
-
             if ext == ".sql":
                 self._analyze_sql_lineage(file_path)
             elif ext == ".py":
@@ -43,7 +39,12 @@ class Hydrologist:
             elif ext in {".yml", ".yaml"}:
                 self._analyze_yaml_sources(file_path)
 
-    # sqlglot-based SQL lineage analysis
+        # Merge all collected edges into the lineage graph
+        self._merge_edges()
+
+    # ----------------------------
+    # SQL Analysis
+    # ----------------------------
     def _analyze_sql_lineage(self, file_path: Path):
         target_dataset = file_path.stem
         self.kg.add_dataset(target_dataset, storage_type="table")
@@ -52,117 +53,81 @@ class Hydrologist:
             sql_text = file_path.read_text(encoding="utf-8")
             tree = parse_one(sql_text, read=self.sql_dialect)
         except Exception:
-            # fallback: treat all imported modules as sources
+            # fallback: use imported modules as sources
             module_data = self.kg.module_graph.nodes.get(str(file_path), {})
             sources = module_data.get("imports", [])
-            for source in sources:
-                self.kg.add_dataset(source, storage_type="table")
-                self.kg.add_lineage_edge(
-                    source=source,
-                    target=target_dataset,
-                    edge_type=EdgeType.PRODUCES,
-                    metadata=self._edge_metadata(file_path, None, "sql_select"),
-                )
+            for src in sources:
+                self._add_edge(src, target_dataset, EdgeType.PRODUCES, {"dialect": "unknown", "file": str(file_path)})
             return
 
-        # Extract tables used in FROM/JOIN/CTEs
         source_tables = [t.name for t in tree.find_all(exp.Table)]
+        edge_type = self._determine_sql_edge_type(tree)
 
-        # Determine edge type based on statement type
-        if tree.find(exp.Create):
-            edge_type = EdgeType.PRODUCES
-        elif tree.find(exp.Insert):
-            edge_type = EdgeType.PRODUCES
-        elif tree.find(exp.Select):
-            edge_type = EdgeType.CONSUMES
-        else:
-            edge_type = EdgeType.PRODUCES
-
-
-        # Add edges for sources
         for src in source_tables:
-            self.kg.add_dataset(src, storage_type="table")
-            self.kg.add_lineage_edge(
-                source=src,
-                target=target_dataset,
-                edge_type=edge_type,
-                metadata=self._edge_metadata(file_path, None, "sql_select")
-
+            self._add_edge(
+                src,
+                target_dataset,
+                edge_type,
+                self._edge_metadata(file_path, tree, "sql_select", dialect=self.sql_dialect)
             )
 
+    def _determine_sql_edge_type(self, tree) -> EdgeType:
+        if tree.find(exp.Create) or tree.find(exp.Insert):
+            return EdgeType.PRODUCES
+        if tree.find(exp.Select):
+            return EdgeType.CONSUMES
+        return EdgeType.PRODUCES
+
+    # ----------------------------
+    # Python Analysis
+    # ----------------------------
     def _analyze_python_dataflow(self, file_path: Path):
-
         text = file_path.read_text()
-
         if "DAG(" in text:
             self._analyze_airflow_dag(file_path, text)
-
 
         tree = self.ts_analyzer.get_tree(str(file_path))
         if not tree:
             return
 
-        # TARGET_CALLS = {"read_csv", "read_sql", "to_csv", "to_sql", "execute"}
         TARGET_CALLS = {"read_csv", "read_sql", "to_csv", "to_sql"}
-
 
         def walk(node):
             if node.type == "call":
                 func_name_node = node.child_by_field_name("function")
                 if func_name_node:
-                    func_name = func_name_node.text.decode("utf-8") if hasattr(func_name_node.text, 'decode') else str(func_name_node.text)
-                    args = [
-                        c.text.decode("utf-8")
-                        for c in node.children
-                        if hasattr(c, "text")
-                    ]
+                    func_name = func_name_node.text.decode("utf-8") if hasattr(func_name_node.text, "decode") else str(func_name_node.text)
+                    args = [c.text.decode("utf-8") if hasattr(c, "text") else str(c) for c in node.children]
 
                     if func_name in {"read_csv", "read_sql"} and args:
                         dataset = args[0].strip('"\'')
                         self.kg.add_dataset(dataset, storage_type="file" if dataset.endswith(".csv") else "table")
-                        self.kg.add_lineage_edge(
-                            source=dataset,
-                            target=file_path.stem,
-                            edge_type=EdgeType.CONSUMES
-                        )
+                        self._add_edge(dataset, file_path.stem, EdgeType.CONSUMES, {"dialect": "python"})
                     elif func_name in {"to_csv", "to_sql"} and args:
                         dataset = args[0].strip('"\'')
                         self.kg.add_dataset(dataset, storage_type="file" if dataset.endswith(".csv") else "table")
-                        self.kg.add_lineage_edge(
-                            source=file_path.stem,
-                            target=dataset,
-                            edge_type=EdgeType.PRODUCES
-                        )
+                        self._add_edge(file_path.stem, dataset, EdgeType.PRODUCES, {"dialect": "python"})
                     else:
-                        # generic function call
-                        self.kg.add_lineage_edge(
-                            source=file_path.stem,
-                            target=func_name,
-                            edge_type=EdgeType.CALLS
-                        )
-            for child in getattr(node, 'children', []):
+                        self._add_edge(file_path.stem, func_name, EdgeType.CALLS, {"dialect": "python"})
+
+            for child in getattr(node, "children", []):
                 walk(child)
 
         walk(tree.root_node)
 
-    # YAML-based source/model extraction
+    # ----------------------------
+    # YAML Analysis
+    # ----------------------------
     def _analyze_yaml_sources(self, file_path: Path):
-        """
-        Parse dbt-style YAML files to extract source datasets, tables, and configurations.
-        Add them to the lineage graph with proper edge types.
-        """
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = yaml.safe_load(f)
+            content = yaml.safe_load(file_path.read_text(encoding="utf-8"))
         except Exception:
-            return  # skip bad YAML
+            return
 
         if not content:
             return
 
-        # Detect sources, models, and configs
-        for key in content:
-            items = content.get(key)
+        for key, items in content.items():
             if isinstance(items, list):
                 for item in items:
                     if not isinstance(item, dict):
@@ -170,31 +135,56 @@ class Hydrologist:
                     name = item.get("name")
                     if not name:
                         continue
-
-                    # Decide storage type: tables or files
                     storage_type = "table" if key in {"sources", "models"} else "file"
-
-                    # Register dataset
                     self.kg.add_dataset(name, storage_type=storage_type)
+                    edge_type = EdgeType.CONFIGURES if key == "sources" else EdgeType.PRODUCES
+                    self._add_edge(str(file_path), name, edge_type, {"yaml_key": key, "dialect": "yaml"})
 
-                    # Create edges: CONFIGURES for configs, PRODUCES for models
-                    if key == "sources":
-                        edge_type = EdgeType.CONFIGURES
+    # ----------------------------
+    # Airflow DAG Analysis
+    # ----------------------------
+    def _analyze_airflow_dag(self, file_path: Path, text: str):
+        pattern = r"(\w+)\s*>>\s*(\w+)"
+        matches = re.findall(pattern, text)
+        for upstream, downstream in matches:
+            self._add_edge(upstream, downstream, EdgeType.PRODUCES, {"type": "airflow_dependency", "dialect": "python"})
+
+    # ----------------------------
+    # Edge Handling
+    # ----------------------------
+    def _add_edge(self, source: str, target: str, edge_type: EdgeType, metadata: dict):
+        """Add or merge edge to temporary list for later merging."""
+        edge = {"source": source, "target": target, "edge_type": edge_type, "metadata": metadata}
+        self.lineage_edges.append(edge)
+
+    def _merge_edges(self):
+        """Merge edges to ensure cross-language consistency and avoid duplicates."""
+        merged = {}
+        for edge in self.lineage_edges:
+            key = (edge["source"], edge["target"])
+            if key not in merged:
+                merged[key] = edge
+            else:
+                existing = merged[key]
+                # merge metadata
+                existing_meta = existing["metadata"]
+                for k, v in edge["metadata"].items():
+                    if k not in existing_meta:
+                        existing_meta[k] = v
+                    elif isinstance(existing_meta[k], list):
+                        existing_meta[k] = list(set(existing_meta[k] + ([v] if not isinstance(v, list) else v)))
                     else:
-                        edge_type = EdgeType.PRODUCES
+                        existing_meta[k] = list(set([existing_meta[k]] + ([v] if not isinstance(v, list) else v)))
+        # push merged edges into graph
+        for edge in merged.values():
+            self.kg.add_lineage_edge(
+                edge["source"], edge["target"], edge["edge_type"], metadata=edge["metadata"]
+            )
 
-                    self.kg.add_lineage_edge(
-                        source=str(file_path),  # config file is the source
-                        target=name,
-                        edge_type=edge_type,
-                        metadata={
-                            "source_file": str(file_path),
-                            "yaml_key": key
-                        }
-                    )
-
-    # Helper to extract metadata for edges
-    def _edge_metadata(self, file_path, node=None, transform=None):
+    # ----------------------------
+    # Metadata Helper
+    # ----------------------------
+    def _edge_metadata(self, file_path, node=None, transform=None, dialect="sql"):
         if isinstance(node, exp.Join):
             transform = "join"
         elif isinstance(node, exp.Group):
@@ -208,41 +198,18 @@ class Hydrologist:
             "file": str(file_path),
             "line_start": getattr(node, "line", None),
             "line_end": getattr(node, "end_line", None),
-            "transformation": transform
+            "transformation": transform,
+            "dialect": dialect
         }
 
-
-    def _analyze_airflow_dag(self, file_path: Path, text: str):
-
-        pattern = r"(\w+)\s*>>\s*(\w+)"
-        matches = re.findall(pattern, text)
-
-        for upstream, downstream in matches:
-            self.kg.add_lineage_edge(
-                source=upstream,
-                target=downstream,
-                edge_type=EdgeType.PRODUCES,
-                metadata={"file": str(file_path), "type": "airflow_dependency"}
-            )
-
-    def add_merged_edge(self, source, target, edge_type, metadata):
-        existing = self.kg.lineage_graph.get_edge_data(source, target)
-
-        if existing:
-            existing["metadata"].update(metadata)
-        else:
-            self.kg.add_lineage_edge(source, target, edge_type=edge_type, metadata=metadata)
-
-
-    # ----- Lineage Queries -----
+    # ----------------------------
+    # Lineage Queries
+    # ----------------------------
     def blast_radius(self, node: str) -> List[str]:
-        """Which downstream datasets are affected if this node changes?"""
         return list(self.kg.blast_radius(node))
 
     def find_sources(self) -> List[str]:
-        """Find datasets with no upstream dependencies."""
         return self.kg.find_sources()
 
     def find_sinks(self) -> List[str]:
-        """Find datasets with no downstream dependencies."""
         return self.kg.find_sinks()
