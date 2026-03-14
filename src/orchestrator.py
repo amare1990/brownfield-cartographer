@@ -1,12 +1,18 @@
 # src/orchestrator.py
+from subprocess import check_output
 from pathlib import Path
 from src.cartographer.graph.knowledge_graph import KnowledgeGraph
 from src.cartographer.analyzers.tree_sitter_analyzer import TreeSitterAnalyzer
 from src.cartographer.agents.surveyor import Surveyor
 from src.cartographer.agents.hydrologist import Hydrologist
-from src.cartographer.agents.semanticist import Semanticist, ContextWindowBudget
+from src.cartographer.agents.semanticist import Semanticist
+from src.cartographer.agents.archivist import Archivist
 from tree_sitter import Parser, Language
 import tree_sitter_python as tspython
+
+
+CARTOGRAPHY_DIR = Path.cwd() / ".cartography"
+CARTOGRAPHY_DIR.mkdir(exist_ok=True)
 
 # ---------- Setup KnowledgeGraph ----------
 kg = KnowledgeGraph()
@@ -16,7 +22,13 @@ ts_analyzer = TreeSitterAnalyzer()
 surveyor = Surveyor(kg, ts_analyzer)
 hydrologist = Hydrologist(kg, ts_analyzer)
 semanticist = Semanticist(kg)
-
+archivist = Archivist(
+    kg=kg,
+    surveyor=surveyor,
+    hydrologist=hydrologist,
+    semanticist=semanticist,
+    artifacts_dir=Path(CARTOGRAPHY_DIR)
+)
 # ---------- Setup Python parser for Hydrologist ----------
 PY_LANGUAGE = Language(tspython.language())
 # python_parser = Parser()
@@ -24,6 +36,17 @@ python_parser = Parser(PY_LANGUAGE)
 
 def run_repo_analysis(repo_path: str):
     repo_path_obj = Path(repo_path)
+
+    # 0️⃣ Detect changed files
+    def get_changed_files(repo_path: str) -> list[str]:
+        try:
+            result = check_output(["git", "diff", "--name-only", "HEAD~1", "HEAD"], cwd=repo_path)
+            return result.decode().splitlines()
+        except Exception:
+            return []
+
+    changed_files = get_changed_files(str(repo_path_obj))
+    is_first_run = not (CARTOGRAPHY_DIR / "CODEBASE.md").exists()
 
     # 1️⃣ Run Surveyor → module graph
     print("\n" + "*" * 40 + " Running Surveyor " + "*" * 60 + "\n")
@@ -50,8 +73,8 @@ def run_repo_analysis(repo_path: str):
 
     # 3️⃣ Serialize graphs
     print("\n" + "*" * 40 + " Serializing Graphs " + "*" * 40 + "\n")
-    CARTOGRAPHY_DIR = Path.cwd() / ".cartography"
-    CARTOGRAPHY_DIR.mkdir(exist_ok=True)
+    # CARTOGRAPHY_DIR = Path.cwd() / ".cartography"
+    # CARTOGRAPHY_DIR.mkdir(exist_ok=True)
 
     module_graph_path = CARTOGRAPHY_DIR / "module_graph.json"
     lineage_graph_path = CARTOGRAPHY_DIR / "lineage_graph.json"
@@ -69,3 +92,24 @@ def run_repo_analysis(repo_path: str):
 
     print("\nFive FDE Day-One Answers:\n")
     print(day_one_answers)
+
+    # 5️⃣ Run Archivist → generate artifacts
+    print("\n" + "*" * 40 + " Running Archivist " + "*" * 60 + "\n")
+
+    # ---------- Decide on Archivist run ----------
+    if is_first_run or changed_files:
+        if is_first_run:
+            print("First run — generating all artifacts...")
+            archivist.serialize_lineage_graph()
+            codebase_path = archivist.generate_CODEBASE_md()
+            brief_path = archivist.generate_onboarding_brief()
+            semantic_index_dir = archivist.build_semantic_index()
+
+            print(f"CODEBASE.md written to {codebase_path}")
+            print(f"Onboarding brief written to {brief_path}")
+            print(f"Semantic index stored in {semantic_index_dir}")
+        else:
+            print(f"Detected {len(changed_files)} changed files — running incremental update...")
+            archivist.incremental_update(changed_files)
+    else:
+        print("No changes detected — skipping Archivist update")
