@@ -168,3 +168,41 @@ class Surveyor:
                     self.kg.module_graph.nodes[str_path]["change_velocity_30d"] = velocity_map[str_path]
 
         return self.kg
+
+    # ---  PageRank (architectural hubs) Analysis ---
+    # This method identifies central modules in the module graph using PageRank.
+    def find_architectural_hubs(self, top_n: int = 10):
+        """Identify central modules using PageRank."""
+        graph = self.kg.module_graph
+
+        if len(graph.nodes) == 0:
+            return []
+
+        scores = nx.pagerank(graph)
+
+        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+        return ranked[:top_n]
+
+    # --- Cycle Detection in Module Graph ---
+    def detect_cycles(self):
+        """Find circular module dependencies."""
+        graph = self.kg.module_graph
+
+        cycles = list(nx.simple_cycles(graph))
+
+        return cycles
+
+    #-- Dead Code Detection (Modules with no dependencies) ---
+    def detect_dead_code(self):
+        """
+        Identify modules with no incoming dependencies.
+        """
+        graph = self.kg.module_graph
+        dead_candidates = []
+
+        for node in graph.nodes:
+            if graph.in_degree(node) == 0 and graph.out_degree(node) == 0:
+                dead_candidates.append(node)
+
+        return dead_candidates

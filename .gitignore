@@ -19,8 +19,7 @@ Thumbs.db
 
 # Artifacts & outputs
 .cartography/
-data/outputs/
-data/sample_repos/jaffle_shop/
+data/
 artifacts/
 
 # IDE/editor

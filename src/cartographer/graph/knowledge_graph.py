@@ -3,7 +3,11 @@ import networkx as nx
 import json
 from typing import Dict, List, Optional
 from src.cartographer.models.node import DatasetNode
-from src.cartographer.models.lineage import LineageEdge
+from src.cartographer.models.lineage import LineageEdge, EdgeType
+
+
+
+VALID_STORAGE_TYPES = {"table", "file", "stream", "api"}
 
 class KnowledgeGraph:
     def __init__(self):
@@ -27,16 +31,24 @@ class KnowledgeGraph:
         # Store as dict for NetworkX compatibility
         self.lineage_graph.add_node(name, **node_data.model_dump())
 
-    def add_lineage_edge(self, source: str, target: str, edge_type: str, **kwargs):
+    def add_lineage_edge(
+        self, source: str, target: str, edge_type: EdgeType, weight: int = 1, metadata: Optional[dict] = None
+    ):
         """
-        Fixes the 'add_lineage_edge' unknown attribute error.
+        Adds a directed edge in the lineage graph using LineageEdge.
+        Ensures robust typing, provenance metadata, and default weight.
         """
+        if metadata is None:
+            metadata = {}
+
         edge_data = LineageEdge(
             source=source,
             target=target,
             edge_type=edge_type,
-            **kwargs
+            weight=weight,
+            metadata=metadata
         )
+
         self.lineage_graph.add_edge(source, target, **edge_data.model_dump())
 
     # --- Serialization ---
@@ -61,3 +73,14 @@ class KnowledgeGraph:
 
     def find_sinks(self) -> List[str]:
         return [n for n, d in self.lineage_graph.out_degree() if d == 0]
+
+    # --- Deserialization ---
+    def load_module_graph(self, input_path: str):
+        with open(input_path) as f:
+            data = json.load(f)
+        self.module_graph = nx.node_link_graph(data)
+
+    def load_lineage_graph(self, input_path: str):
+        with open(input_path) as f:
+            data = json.load(f)
+        self.lineage_graph = nx.node_link_graph(data)
