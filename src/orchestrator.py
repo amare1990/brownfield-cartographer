@@ -4,6 +4,7 @@ from src.cartographer.graph.knowledge_graph import KnowledgeGraph
 from src.cartographer.analyzers.tree_sitter_analyzer import TreeSitterAnalyzer
 from src.cartographer.agents.surveyor import Surveyor
 from src.cartographer.agents.hydrologist import Hydrologist
+from src.cartographer.agents.semanticist import Semanticist, ContextWindowBudget
 from tree_sitter import Parser, Language
 import tree_sitter_python as tspython
 
@@ -14,6 +15,7 @@ kg = KnowledgeGraph()
 ts_analyzer = TreeSitterAnalyzer()
 surveyor = Surveyor(kg, ts_analyzer)
 hydrologist = Hydrologist(kg, ts_analyzer)
+semanticist = Semanticist(kg)
 
 # ---------- Setup Python parser for Hydrologist ----------
 PY_LANGUAGE = Language(tspython.language())
@@ -60,5 +62,10 @@ def run_repo_analysis(repo_path: str):
     print(f"Module graph saved to {module_graph_path}")
     print(f"Lineage graph saved to {lineage_graph_path}")
 
-# Example usage:
-# run_repo_analysis("data/sample_repos/jaffle_shop")
+    # 4️⃣ Run Semanticist → insights
+    print("\n" + "*" * 40 + " Running Semanticist " + "*" * 60 + "\n")
+    semanticist.analyze_repo()  # generate purpose statements and cluster domains
+    day_one_answers = semanticist.answer_day_one_questions()  # synthesize answers
+
+    print("\nFive FDE Day-One Answers:\n")
+    print(day_one_answers)

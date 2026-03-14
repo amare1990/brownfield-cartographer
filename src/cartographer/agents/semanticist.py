@@ -90,7 +90,7 @@ class Semanticist:
       model = self.expensive_model if tier == "expensive" else self.cheap_model
 
       # fallback to a default model if env var not set
-      model = model or "gpt-5.2"
+      model = model or ("gpt-4o" if tier == "expensive" else "gemini-1.5-pro")
 
       response = self.client.chat.completions.create(
           model=model,
