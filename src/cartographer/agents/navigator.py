@@ -1,10 +1,15 @@
-# src/agents/navigator.py
+# src/cartographer/agents/navigator.py
+
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+import pickle
 
 from typing import Any, List
 
 from src.cartographer.graph.knowledge_graph import KnowledgeGraph
 from src.cartographer.agents.semanticist import Semanticist
 from src.cartographer.agents.hydrologist import Hydrologist
+from src.cartographer.agents.archivist import Archivist
 
 # ----------------------------------------------------
 # Navigator Agent
@@ -20,24 +25,50 @@ class Navigator:
       - explain_module
     """
 
-    def __init__(self, kg: KnowledgeGraph, semanticist: Semanticist, hydrologist: Hydrologist):
+    def __init__(self, kg: KnowledgeGraph, semanticist: Semanticist, hydrologist: Hydrologist, archivist: Archivist):
         self.kg = kg
         self.semanticist = semanticist
         self.hydrologist = hydrologist
+        self.archivist = archivist
 
     # ----------------------------------------------------
     # Tool 1: Find Implementation
     # ----------------------------------------------------
-    def find_implementation(self, concept: str) -> List[str]:
+
+    def find_implementation(
+            self,
+            concept: str,
+            top_k: int = 5,
+            similarity_threshold: float = 0.7
+        ) -> list[str]:
         """
-        Search module purpose statements for the concept.
-        Returns matching module paths.
+        Find modules implementing a concept using semantic similarity.
+
+        Args:
+            concept: The concept to search for.
+            top_k: Maximum number of modules to return.
+            similarity_threshold: Minimum cosine similarity to include a module.
+
+        Returns:
+            List of module paths most semantically related to the concept.
         """
         matches = []
-        for module, purpose in self.semanticist.purpose_statements.items():
-            if concept.lower() in purpose.lower():
-                matches.append(module)
-        return matches
+
+        # Step 1: Embed the concept
+        concept_vector = np.array(self.semanticist._embed_text(concept)).reshape(1, -1)
+
+        # Step 2: Compare against all module embeddings stored in Archivist
+        for module, emb in self.archivist.purpose_vectors.items():
+            emb_vector = np.array(emb).reshape(1, -1)  # convert list to 2D array
+            sim = cosine_similarity(concept_vector, emb_vector)[0][0]
+            if sim >= similarity_threshold:
+                matches.append((module, sim))
+
+        # Step 3: Sort by similarity descending
+        matches.sort(key=lambda x: x[1], reverse=True)
+
+        # Step 4: Return top-k module paths
+        return [module for module, _ in matches[:top_k]]
 
     # ----------------------------------------------------
     # Tool 2: Trace Lineage

@@ -7,6 +7,7 @@ from src.cartographer.agents.surveyor import Surveyor
 from src.cartographer.agents.hydrologist import Hydrologist
 from src.cartographer.agents.semanticist import Semanticist
 from src.cartographer.agents.archivist import Archivist
+from src.cartographer.agents.navigator import Navigator
 from tree_sitter import Parser, Language
 import tree_sitter_python as tspython
 
@@ -29,6 +30,9 @@ archivist = Archivist(
     semanticist=semanticist,
     artifacts_dir=Path(CARTOGRAPHY_DIR)
 )
+archivist.build_semantic_index()  # ensure embeddings exist
+navigator = Navigator(kg, semanticist, hydrologist, archivist)
+
 # ---------- Setup Python parser for Hydrologist ----------
 PY_LANGUAGE = Language(tspython.language())
 # python_parser = Parser()
@@ -113,3 +117,55 @@ def run_repo_analysis(repo_path: str):
             archivist.incremental_update(changed_files)
     else:
         print("No changes detected — skipping Archivist update")
+
+
+    # 6️⃣ Navigator interactive section
+    # ------------------------------
+    print("\n" + "*" * 40 + " Navigator Interactive " + "*" * 60 + "\n")
+
+    tools = {
+        "1": "find_implementation",
+        "2": "trace_lineage",
+        "3": "blast_radius",
+        "4": "explain_module",
+        "q": "quit"
+    }
+
+    print("Navigator Tools:")
+    print("1: find_implementation")
+    print("2: trace_lineage")
+    print("3: blast_radius")
+    print("4: explain_module")
+    print("q: quit")
+
+    while True:
+        choice = input("\nSelect a tool (1-4) or 'q' to quit: ").strip()
+        if choice == "q":
+            break
+        if choice not in tools:
+            print("Invalid choice")
+            continue
+
+        tool_name = tools[choice]
+
+        if tool_name == "find_implementation":
+            concept = input("Enter concept to search for: ").strip()
+            top_k = int(input("Top k modules to return [5]: ") or 5)
+            results = navigator.find_implementation(concept, top_k=top_k)
+            print("\nMatches:", results)
+
+        elif tool_name == "trace_lineage":
+            dataset = input("Enter dataset/module name: ").strip()
+            direction = input("Direction (upstream/downstream) [upstream]: ").strip() or "upstream"
+            results = navigator.trace_lineage(dataset, direction=direction)
+            print("\nLineage:", results)
+
+        elif tool_name == "blast_radius":
+            module_path = input("Enter module path: ").strip()
+            results = navigator.blast_radius(module_path)
+            print("\nAffected modules:", results)
+
+        elif tool_name == "explain_module":
+            module_path = input("Enter module path: ").strip()
+            result = navigator.explain_module(module_path)
+            print("\nModule Explanation:\n", result)
