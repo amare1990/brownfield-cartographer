@@ -115,10 +115,26 @@ cp .env.examples .env
 
 ### Analyze a Repository
 
+Run the full cartography pipeline: Surveyor, Hydrologist, Semanticist, Archivist.
+
 ```bash
-# Run the CLI to analyze a repo (example: jaffle_shop)
-uv run python -m src.cli data/jaffle_shop
+# Example: analyze a local repo
+uv run python -m src.cli analyze path/to/repo
+
+# Example: analyze a GitHub repo
+uv run python -m src.cli analyze https://github.com/dbt-labs/jaffle-shop.git
+
 ```
+### Interactive Navigator CLI
+
+Query the knowledge graph interactively to find implementations, trace lineage, check blast radius, or explain modules.
+
+```bash
+# Launch interactive Navigator
+uv run python -m src.cli nav
+
+```
+
 
 **Outputs:**
 
