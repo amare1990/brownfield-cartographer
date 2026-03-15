@@ -235,9 +235,11 @@ Generated on {datetime.now().isoformat()}
         extra = extra or {}
 
         trace_entry = {
+            "timestamp": datetime.now().isoformat(),
             "action": action,
             "artifact": str(artifact_path),
             "confidence": confidence,
+            "evidence_source": extra.get("evidence_source", "static_analysis"),
             "extra": extra,
         }
 
