@@ -102,6 +102,13 @@ def run_repo_analysis(repo_path: str):
         hydrologist.analyze_repo(str(repo_path_obj))
         print(f"Lineage graph nodes: {len(kg.lineage_graph.nodes)}")
         print(f"Lineage graph edges: {len(kg.lineage_graph.edges)}")
+
+        print("\n" + "*" * 40 + " Hydrologist Lineage Edges " + "*" * 60 + "\n")
+        for source, target, metadata in kg.lineage_graph.edges(data=True):
+            edge_type = metadata.get("edge_type", "unknown")
+            print(f"{source} -> {target} | type={edge_type} | metadata={metadata}")
+
+
     finally:
         kg.serialize_lineage_graph(str(CARTOGRAPHY_DIR / "lineage_graph.json"))
 
@@ -152,7 +159,7 @@ def navigator_cli(navigator):
         choice = input("\nSelect a tool (1-4) or 'q' to quit: ").strip()
         if choice == "q":
             break
-        if choice not in {"1","2","3","4"}:
+        if choice not in {"1", "2", "3", "4"}:
             print("Invalid choice")
             continue
 
@@ -160,8 +167,11 @@ def navigator_cli(navigator):
             concept = input("Enter concept to search for: ").strip()
             top_k = int(input("Top k modules to return [5]: ") or 5)
             results = navigator.find_implementation(concept, top_k=top_k)
-            for i, module in enumerate(results, 1):
-                print(f"{i}. {module}")
+            if not results:
+                print("No modules found matching the concept.")
+                continue
+            for i, entry in enumerate(results, 1):
+                print(f"{i}. {entry['module']} | similarity={entry['similarity']:.3f} | source={entry['evidence_source']}")
 
         elif choice == "2":
             dataset = input("Enter dataset/module name: ").strip()
@@ -171,16 +181,33 @@ def navigator_cli(navigator):
                 print("No lineage found.")
                 continue
             for entry in results:
+                if "error" in entry:
+                    print(f"⚠️ {entry['error']}")
+                    continue
                 lines = entry.get("lines", (None, None))
-                print(f"- {entry['module']} | source={entry['source']} | lines={lines[0]}-{lines[1]}")
+                file_path = entry.get("file", "N/A")
+                source = entry.get("source", "unknown")
+                print(f"- {entry['module']} | source={source} | file={file_path} | lines={lines[0]}-{lines[1]}")
 
         elif choice == "3":
             module_path = input("Enter module path: ").strip()
             results = navigator.blast_radius(module_path)
-            print("Affected modules:", results)
+            if not results:
+                print(f"No downstream modules affected by {module_path} or module not found.")
+                continue
+            for entry in results:
+                if "error" in entry:
+                    print(f"⚠️ {entry['error']}")
+                else:
+                    print(f"- {entry['module']}")
 
         elif choice == "4":
             module_path = input("Enter module path: ").strip()
             result = navigator.explain_module(module_path)
-            print("\nModule Explanation:\n", result)
+            if "error" in result:
+                print(f"⚠️ {result['error']}")
+            else:
+                drift_msg = result.get("drift_msg", "")
+                print(f"\nModule: {result['module']}\nPurpose: {result['purpose']}\n{drift_msg}")
+
 
